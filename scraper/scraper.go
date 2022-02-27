@@ -1,197 +1,174 @@
 package scraper
 
 import (
-	"context"
 	"fmt"
-	"log"
 	"path"
-	"strconv"
+	"scraper/scraper/exchange"
+	"scraper/scraper/models"
+	"time"
 
-	"github.com/adshao/go-binance/v2"
 	"github.com/adshao/go-binance/v2/futures"
 	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 )
 
-type scraper struct {
-	db      *gorm.DB
-	client  *futures.Client
-	tickers map[string]*futures.BookTicker
+type ScraperConfig struct {
+	Portfolios []*models.Portfolio
+
+	DBPath string
 }
 
-func New(config *ScraperConfig) (Scraper, error) {
+type Scraper interface {
+	shouldUpdateRepo(newPortfolio *models.Portfolio) bool
+	shouldUpdateExchange(newPortfolio *models.Portfolio) bool
+	UpdateRepo(portfolio *models.Portfolio) error
+	UpdateExchange(portfolio *models.Portfolio) error
 
-	db, err := initDB(config)
-	if err != nil {
-		return nil, err
-	}
+	Scrape() error
+	ScrapePortfolio(portfolio *models.Portfolio) error
+	ScrapePositions() error
+	ScrapeOrders() error
+	ScrapeTrades() error
+}
 
-	client, err := initClient(config)
-	if err != nil {
-		return nil, err
-	}
+type scraper struct {
+	config *ScraperConfig
 
+	repo     Repository
+	exchange exchange.Exchange
+	ctx      models.ScrapeCtx
+	tickers  map[string]*futures.BookTicker
+}
+
+func NewScraper(config *ScraperConfig) (Scraper, error) {
 	return &scraper{
-		db:      db,
-		client:  client,
+		config:  config,
 		tickers: make(map[string]*futures.BookTicker),
 	}, nil
 }
 
-func initDB(config *ScraperConfig) (*gorm.DB, error) {
-	path := path.Join(config.DBPath, "scraper.db")
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
-	if err != nil {
-		return nil, err
+func (s *scraper) shouldUpdateRepo(newPortfolio *models.Portfolio) bool {
+	oldPath := s.config.DBPath
+	if s.ctx.Portfolio.DBPath != "" {
+		oldPath = s.ctx.Portfolio.DBPath
 	}
-
-	db.AutoMigrate(&Position{}, &Trade{}, &Order{})
-
-	return db, nil
+	return s.repo == nil || oldPath != newPortfolio.DBPath
 }
 
-func initClient(config *ScraperConfig) (*futures.Client, error) {
-	client := binance.NewFuturesClient(config.APIKey, config.APISecret)
-	err := client.NewPingService().Do(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("failed to ping binance api: %v", err)
-	}
-
-	return client, nil
+func (s *scraper) shouldUpdateExchange(newPortfolio *models.Portfolio) bool {
+	exchangeMatch := s.ctx.Portfolio.Exchange != newPortfolio.Exchange
+	apiKeyMatch := s.ctx.Portfolio.APIKey != newPortfolio.APIKey
+	apiSecretMatch := s.ctx.Portfolio.APISecret != newPortfolio.APISecret
+	return s.exchange == nil || exchangeMatch || apiKeyMatch || apiSecretMatch
 }
 
-func (s *scraper) Scrape() error {
-	err := s.updateTickers()
+func (s *scraper) UpdateRepo(portfolio *models.Portfolio) error {
+	shouldUpdate := s.shouldUpdateRepo(portfolio)
+	if !shouldUpdate {
+		return nil
+	}
+
+	DBPath := s.config.DBPath
+	if s.ctx.Portfolio.DBPath != "" {
+		DBPath = s.ctx.Portfolio.DBPath
+	}
+
+	path := path.Join(DBPath, "scraper.db")
+	repo, err := NewRepository(sqlite.Open(path))
 	if err != nil {
 		return err
 	}
 
-	positions, err := s.GetPositions()
+	s.repo = repo
+
+	portfolios := s.config.Portfolios
+	if s.ctx.Portfolio.DBPath != "" {
+		portfolios = []*models.Portfolio{s.ctx.Portfolio}
+	}
+
+	if err := s.repo.SyncPortfolios(portfolios); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *scraper) UpdateExchange(portfolio *models.Portfolio) error {
+	shouldUpdate := s.shouldUpdateExchange(portfolio)
+	if !shouldUpdate {
+		return nil
+	}
+
+	exchange, err := exchange.NewExchange(s.ctx.Portfolio)
+	if err != nil {
+		return err
+	}
+
+	s.exchange = exchange
+	return nil
+}
+
+func (s *scraper) Scrape() error {
+	s.ctx.ScrapedAt = time.Now().Unix()
+	for _, portfolio := range s.config.Portfolios {
+		if err := s.ScrapePortfolio(portfolio); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *scraper) ScrapePortfolio(portfolio *models.Portfolio) error {
+	s.ctx.Portfolio = portfolio
+
+	if err := s.UpdateRepo(portfolio); err != nil {
+		return err
+	}
+
+	if err := s.UpdateExchange(portfolio); err != nil {
+		return err
+	}
+
+	if err := s.ScrapePositions(); err != nil {
+		return err
+	}
+
+	if err := s.ScrapeOrders(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *scraper) ScrapePositions() error {
+	positions, err := s.exchange.GetPositions()
 	if err != nil {
 		return err
 	}
 
 	for _, position := range positions {
-		err = s.db.Create(position).Error
-		if err != nil {
-			return err
+		position.ApplyScrapeCtx(&s.ctx)
+		if _, err := s.repo.CreatePosition(position); err != nil {
+			return fmt.Errorf("failed to create position: %v", err)
 		}
-
-		// pair := position.Asset + "USDT"
-		// trades, err := s.GetTrades(pair)
-		// if err != nil {
-		// 	return err
-		// }
-
-		// for _, trade := range trades {
-		// 	err = s.db.Create(&Trade{
-		// 		Symbol:    pair,
-		// 		Price:     trade.Price,
-		// 		Amount:    trade.Quantity,
-		// 		Timestamp: trade.Time,
-		// 		Side:      trade.IsBuyer,
-		// 	}).Error
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// }
 	}
 
 	return nil
 }
 
-func (s *scraper) updateTickers() error {
-	tickers, err := s.client.NewListBookTickersService().Do(context.Background())
+func (s *scraper) ScrapeOrders() error {
+	orders, err := s.exchange.GetOrders()
 	if err != nil {
 		return err
 	}
 
-	s.tickers = make(map[string]*futures.BookTicker)
-	for _, ticker := range tickers {
-		s.tickers[ticker.Symbol] = ticker
+	for _, order := range orders {
+		fmt.Printf("%+v\n", order)
 	}
 
 	return nil
 }
 
-func (s *scraper) GetPositions() ([]*futures.Balance, error) {
-	balance, err := s.client.NewGetBalanceService().Do(context.Background())
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	positions := []*futures.Balance{}
-	for _, asset := range balance {
-
-		if s.AssetIsUSD(asset.Asset) {
-			continue
-		}
-
-		pair := asset.Asset + "USDT"
-		ticker := s.tickers[pair]
-		if ticker == nil {
-			return nil, fmt.Errorf("ticker not found for %s", pair)
-		}
-
-		positionCost, err := s.GetPositionCost(asset)
-		if err != nil {
-			return nil, err
-		}
-
-		if positionCost < 0.1 {
-			continue
-		}
-
-		positions = append(positions, asset)
-	}
-	return positions, nil
-}
-
-func (s *scraper) GetOrders() ([]*futures.Order, error) {
-	return s.client.NewListOpenOrdersService().Do(context.Background())
-}
-
-func (s *scraper) GetTrades(symbol string) ([]*futures.Trade, error) {
-	return s.client.NewRecentTradesService().Symbol(symbol).Do(context.Background())
-}
-
-func (s *scraper) GetPositionCost(position *futures.Balance) (float64, error) {
-
-	pair := position.Asset + "USDT"
-	ticker := s.tickers[pair]
-	if ticker == nil {
-		return 0, fmt.Errorf("ticker not found for %s", pair)
-	}
-
-	b, err := strconv.ParseFloat(position.Balance, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	p, err := strconv.ParseFloat(ticker.BidPrice, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return b * p, nil
-}
-
-func (s *scraper) AssetIsUSD(asset string) bool {
-	fiatUSD := []string{
-		"USDT",
-		"USDC",
-		"TUSD",
-		"BUSD",
-	}
-
-	return contains(fiatUSD, asset)
-}
-
-func contains(arr []string, val string) bool {
-	for _, v := range arr {
-		if v == val {
-			return true
-		}
-	}
-	return false
+func (s *scraper) ScrapeTrades() error {
+	return nil
 }

@@ -9,33 +9,26 @@ import (
 )
 
 func main() {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
 
-	loadConfig()
-
-	config := &scraper.ScraperConfig{
-		APIKey:    viper.GetString("api_key"),
-		APISecret: viper.GetString("api_secret"),
-		DBPath:    viper.GetString("db_path"),
+	if err := viper.ReadInConfig(); err != nil {
+		log.Fatal(fmt.Errorf("failed to read config: %v", err))
 	}
 
-	scraper, err := scraper.New(config)
+	config := &scraper.ScraperConfig{
+		DBPath: viper.GetString("db_path"),
+	}
+
+	if err := viper.UnmarshalKey("portfolios", &config.Portfolios); err != nil {
+		log.Fatal(err)
+	}
+
+	scraper, err := scraper.NewScraper(config)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	scraper.Scrape()
-
-}
-
-func loadConfig() error {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-
-	err := viper.ReadInConfig()
-	if err != nil {
-		return fmt.Errorf("failed to read config: %v", err)
-	}
-
-	return nil
 }
