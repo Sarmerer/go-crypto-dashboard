@@ -2,103 +2,64 @@ package scraper
 
 import (
 	"fmt"
-	"path"
-	"scraper/scraper/exchange"
-	"scraper/scraper/models"
+	"log"
 	"time"
 
-	"github.com/adshao/go-binance/v2/futures"
-	"gorm.io/driver/sqlite"
+	"github.com/sarmerer/go-crypto-dashboard/config"
+	"github.com/sarmerer/go-crypto-dashboard/database"
+	"github.com/sarmerer/go-crypto-dashboard/database/sqlite3"
+	"github.com/sarmerer/go-crypto-dashboard/model"
+	"github.com/sarmerer/go-crypto-dashboard/scraper/exchange"
 )
 
-type ScraperConfig struct {
-	Portfolios []*models.Portfolio
-
-	DBPath string
-}
-
 type Scraper interface {
-	shouldUpdateRepo(newPortfolio *models.Portfolio) bool
-	shouldUpdateExchange(newPortfolio *models.Portfolio) bool
-	UpdateRepo(portfolio *models.Portfolio) error
-	UpdateExchange(portfolio *models.Portfolio) error
+	UpdateRepo(portfolio *model.Portfolio) error
+	UpdateExchange(portfolio *model.Portfolio) error
 
 	Scrape() error
-	ScrapePortfolio(portfolio *models.Portfolio) error
+	ScrapePortfolio(portfolio *model.Portfolio) error
 	ScrapePositions() error
 	ScrapeOrders() error
-	ScrapeTrades() error
+	ScrapeIncome() error
+	ScrapeIncomeHistory() error
+
+	IsWeightOverused() bool
+	Sleep()
 }
 
 type scraper struct {
-	config *ScraperConfig
-
-	repo     Repository
+	repo     database.Repository
 	exchange exchange.Exchange
-	ctx      models.ScrapeCtx
-	tickers  map[string]*futures.BookTicker
+	ctx      *model.ScrapeCtx
 }
 
-func NewScraper(config *ScraperConfig) (Scraper, error) {
+func NewScraper() (Scraper, error) {
 	return &scraper{
-		config:  config,
-		tickers: make(map[string]*futures.BookTicker),
+		ctx: &model.ScrapeCtx{
+			ScrapedAt:   time.Now().Unix(),
+			WeightLimit: 300,
+			Cooldown:    60,
+		},
 	}, nil
 }
 
-func (s *scraper) shouldUpdateRepo(newPortfolio *models.Portfolio) bool {
-	oldPath := s.config.DBPath
-	if s.ctx.Portfolio.DBPath != "" {
-		oldPath = s.ctx.Portfolio.DBPath
-	}
-	return s.repo == nil || oldPath != newPortfolio.DBPath
-}
-
-func (s *scraper) shouldUpdateExchange(newPortfolio *models.Portfolio) bool {
-	exchangeMatch := s.ctx.Portfolio.Exchange != newPortfolio.Exchange
-	apiKeyMatch := s.ctx.Portfolio.APIKey != newPortfolio.APIKey
-	apiSecretMatch := s.ctx.Portfolio.APISecret != newPortfolio.APISecret
-	return s.exchange == nil || exchangeMatch || apiKeyMatch || apiSecretMatch
-}
-
-func (s *scraper) UpdateRepo(portfolio *models.Portfolio) error {
-	shouldUpdate := s.shouldUpdateRepo(portfolio)
-	if !shouldUpdate {
-		return nil
-	}
-
-	DBPath := s.config.DBPath
-	if s.ctx.Portfolio.DBPath != "" {
-		DBPath = s.ctx.Portfolio.DBPath
-	}
-
-	path := path.Join(DBPath, "scraper.db")
-	repo, err := NewRepository(sqlite.Open(path))
+func (s *scraper) UpdateRepo(portfolio *model.Portfolio) error {
+	repo, err := sqlite3.NewRepository(portfolio)
 	if err != nil {
 		return err
 	}
 
 	s.repo = repo
 
-	portfolios := s.config.Portfolios
-	if s.ctx.Portfolio.DBPath != "" {
-		portfolios = []*models.Portfolio{s.ctx.Portfolio}
-	}
-
-	if err := s.repo.SyncPortfolios(portfolios); err != nil {
+	if err := s.repo.UpdatePortfolios(config.Portfolios); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *scraper) UpdateExchange(portfolio *models.Portfolio) error {
-	shouldUpdate := s.shouldUpdateExchange(portfolio)
-	if !shouldUpdate {
-		return nil
-	}
-
-	exchange, err := exchange.NewExchange(s.ctx.Portfolio)
+func (s *scraper) UpdateExchange(portfolio *model.Portfolio) error {
+	exchange, err := exchange.NewExchange(s.ctx.Portfolio, s.ctx)
 	if err != nil {
 		return err
 	}
@@ -108,17 +69,17 @@ func (s *scraper) UpdateExchange(portfolio *models.Portfolio) error {
 }
 
 func (s *scraper) Scrape() error {
-	s.ctx.ScrapedAt = time.Now().Unix()
-	for _, portfolio := range s.config.Portfolios {
+	for _, portfolio := range config.Portfolios {
+		log.Printf("scraping portfolio %s", portfolio.Alias)
 		if err := s.ScrapePortfolio(portfolio); err != nil {
-			return err
+			log.Print(fmt.Errorf("portfolio %s: %v", portfolio.Alias, err))
 		}
 	}
 
 	return nil
 }
 
-func (s *scraper) ScrapePortfolio(portfolio *models.Portfolio) error {
+func (s *scraper) ScrapePortfolio(portfolio *model.Portfolio) error {
 	s.ctx.Portfolio = portfolio
 
 	if err := s.UpdateRepo(portfolio); err != nil {
@@ -129,12 +90,30 @@ func (s *scraper) ScrapePortfolio(portfolio *models.Portfolio) error {
 		return err
 	}
 
-	if err := s.ScrapePositions(); err != nil {
+	if err := s.repo.RemoveAllOrders(portfolio); err != nil {
 		return err
 	}
 
-	if err := s.ScrapeOrders(); err != nil {
-		return err
+	tasks := []func() error{
+		s.ScrapePositions,
+		s.ScrapeOrders,
+	}
+
+	if portfolio.HistoryScraped {
+		tasks = append(tasks, s.ScrapeIncome)
+	} else {
+		tasks = append(tasks, s.ScrapeIncomeHistory)
+	}
+
+	for _, task := range tasks {
+		if err := task(); err != nil {
+			return err
+		}
+
+		if s.IsWeightOverused() {
+			log.Printf("weight limit exceeded, sleeping for %d seconds", s.ctx.Cooldown)
+			s.Sleep()
+		}
 	}
 
 	return nil
@@ -147,10 +126,11 @@ func (s *scraper) ScrapePositions() error {
 	}
 
 	for _, position := range positions {
-		position.ApplyScrapeCtx(&s.ctx)
-		if _, err := s.repo.CreatePosition(position); err != nil {
-			return fmt.Errorf("failed to create position: %v", err)
+		position.ScrapeCtx.Apply(s.ctx)
+		if err := s.repo.CreatePosition(position); err != nil {
+			return err
 		}
+
 	}
 
 	return nil
@@ -163,12 +143,73 @@ func (s *scraper) ScrapeOrders() error {
 	}
 
 	for _, order := range orders {
-		fmt.Printf("%+v\n", order)
+		order.ScrapeCtx.Apply(s.ctx)
+		if err := s.repo.CreateOrder(order); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (s *scraper) ScrapeTrades() error {
+func (s *scraper) ScrapeIncome() error {
+	incomes, err := s.exchange.GetIncome()
+	if err != nil {
+		return err
+	}
+
+	for _, income := range incomes {
+		income.ScrapeCtx.Apply(s.ctx)
+		if err := s.repo.CreateIncome(income); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func (s *scraper) ScrapeIncomeHistory() error {
+	oldestIncomeTime := s.ctx.ScrapedAt
+
+	for {
+		if s.IsWeightOverused() {
+			log.Printf("weight limit exceeded, sleeping for %d seconds", s.ctx.Cooldown)
+			s.Sleep()
+		}
+
+		log.Printf("scraping income history from %d", oldestIncomeTime)
+		incomes, err := s.exchange.GetIncomeBetween(0, oldestIncomeTime)
+		if err != nil {
+			return err
+		}
+
+		if len(incomes) == 0 {
+			break
+		}
+
+		for _, income := range incomes {
+			income.ScrapeCtx.Apply(s.ctx)
+			if err := s.repo.CreateIncome(income); err != nil {
+				return err
+			}
+		}
+
+		oldestIncomeTime = incomes[0].Timestamp - 1
+	}
+
+	s.ctx.Portfolio.HistoryScraped = true
+	if err := s.repo.UpdatePortfolio(s.ctx.Portfolio); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *scraper) IsWeightOverused() bool {
+	return s.ctx.WeightUsed > s.ctx.WeightLimit
+}
+
+func (s *scraper) Sleep() {
+	time.Sleep(time.Second * s.ctx.Cooldown)
+	s.ctx.WeightUsed = 0
 }

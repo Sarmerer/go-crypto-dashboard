@@ -3,32 +3,48 @@ package main
 import (
 	"fmt"
 	"log"
-	"scraper/scraper"
+	"os"
 
-	"github.com/spf13/viper"
+	"github.com/sarmerer/go-crypto-dashboard/api"
+	"github.com/sarmerer/go-crypto-dashboard/config"
+	"github.com/sarmerer/go-crypto-dashboard/scraper"
+)
+
+const (
+	SCRAPE = iota
+	INFO
 )
 
 func main() {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
 
-	if err := viper.ReadInConfig(); err != nil {
-		log.Fatal(fmt.Errorf("failed to read config: %v", err))
-	}
-
-	config := &scraper.ScraperConfig{
-		DBPath: viper.GetString("db_path"),
-	}
-
-	if err := viper.UnmarshalKey("portfolios", &config.Portfolios); err != nil {
-		log.Fatal(err)
-	}
-
-	scraper, err := scraper.NewScraper(config)
+	err := config.Load()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(fmt.Errorf("failed to load config: %v", err))
 	}
 
-	scraper.Scrape()
+	args := os.Args[1:]
+	command := SCRAPE
+	if len(args) > 0 {
+		if args[0] == "info" {
+			command = INFO
+		}
+	}
+
+	switch command {
+	case SCRAPE:
+		scraper, err := scraper.NewScraper()
+		if err != nil {
+			log.Fatal(fmt.Errorf("failed to initialize scraper: %v", err))
+		}
+
+		if err := scraper.Scrape(); err != nil {
+			log.Fatal(fmt.Errorf("failed to scrape: %v", err))
+		}
+	case INFO:
+		api.PortfolioInfo(config.Portfolios[0])
+		return
+	default:
+		log.Fatal(fmt.Errorf("unknown command: %v", command))
+	}
+
 }
