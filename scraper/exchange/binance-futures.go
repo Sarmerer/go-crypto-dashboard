@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/adshao/go-binance/v2/futures"
 	"github.com/sarmerer/go-crypto-dashboard/model"
@@ -54,6 +55,15 @@ func NewBinanceFutures(portfolio *model.Portfolio, ctx *model.ScrapeCtx) (Exchan
 	}
 
 	return exchange, nil
+}
+
+func (e *binanceFutures) GetBalance() (float64, error) {
+	account, err := e.client.NewGetAccountService().Do(context.Background())
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.ParseFloat(account.TotalWalletBalance, 64)
 }
 
 func (e *binanceFutures) GetPositions() ([]*model.Position, error) {
@@ -183,14 +193,14 @@ func (e *binanceFutures) parsePosition(ap *futures.AccountPosition) (*model.Posi
 	}
 
 	return &model.Position{
-		Symbol:    ap.Symbol,
-		Amount:    amount,
-		Cost:      price,
-		Isolated:  ap.Isolated,
-		UnPnl:     unpnl,
-		Side:      string(ap.PositionSide),
-		Leverage:  int32(lev),
-		UpdatedAt: ap.UpdateTime,
+		Symbol:   ap.Symbol,
+		Amount:   amount,
+		Cost:     price,
+		Isolated: ap.Isolated,
+		UnPnl:    unpnl,
+		Side:     string(ap.PositionSide),
+		Leverage: int32(lev),
+		Date:     time.UnixMilli(ap.UpdateTime),
 	}, nil
 }
 
@@ -215,7 +225,7 @@ func (e *binanceFutures) parseOrder(order *futures.Order) (*model.Order, error) 
 		Price:        price,
 		Amount:       amount,
 		ReduceOnly:   order.ReduceOnly,
-		Timestamp:    order.Time,
+		Date:         time.UnixMilli(order.Time),
 	}, nil
 }
 
@@ -234,13 +244,13 @@ func (e *binanceFutures) parseIncome(income *futures.IncomeHistory) (*model.Inco
 	}
 
 	return &model.Income{
-		ID:        income.TranID,
-		Symbol:    income.Symbol,
-		Asset:     income.Asset,
-		Type:      string(income.IncomeType),
-		Info:      income.Info,
-		Income:    pnl,
-		Timestamp: income.Time,
-		TradeID:   tradeID,
+		ID:      income.TranID,
+		Symbol:  income.Symbol,
+		Asset:   income.Asset,
+		Type:    string(income.IncomeType),
+		Info:    income.Info,
+		Income:  pnl,
+		TradeID: tradeID,
+		Date:    time.UnixMilli(income.Time),
 	}, nil
 }

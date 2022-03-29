@@ -1,10 +1,10 @@
-portfolios:
+portfolio:
   - id: unique_id
     alias: My portfolio
     exchange: binance-futures
     api_key:
     api_secret:
 
-# relative to main.go
-db_path: "."
-db_driver: sqlite3
+driver:
+  sqlite3:
+    dsn: ./database.db

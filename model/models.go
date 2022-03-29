@@ -4,19 +4,25 @@ import (
 	"time"
 )
 
+type PortfolioID string
+
 type Portfolio struct {
-	ID             int64  `gorm:"primary_key;varchar(50);not null" mapstructure:"id"`
-	Alias          string `gorm:"type:varchar(50);not null" mapstructure:"alias"`
-	Exchange       string `gorm:"type:varchar(50);not null" mapstructure:"exchange"`
-	APIKey         string `gorm:"-" mapstructure:"api_key"`
-	APISecret      string `gorm:"-" mapstructure:"api_secret"`
-	HistoryScraped bool   `gorm:"type:boolean;default:false" mapstructure:"-"`
+	ID             PortfolioID `gorm:"primaryKey;varchar(50);not null" mapstructure:"id"`
+	Alias          string      `gorm:"type:varchar(50);not null" mapstructure:"alias"`
+	Exchange       string      `gorm:"type:varchar(50);not null" mapstructure:"exchange"`
+	APIKey         string      `gorm:"-" mapstructure:"key"`
+	APISecret      string      `gorm:"-" mapstructure:"secret"`
+	HistoryScraped bool        `gorm:"type:bool;default:false" mapstructure:"-"`
+}
+
+func (p *Portfolio) SyncWith(record *Portfolio) {
+	p.HistoryScraped = record.HistoryScraped
 }
 
 type ScrapeCtx struct {
-	ScrapedAt   int64      `gorm:"type:bigint;not null"`
-	Portfolio   *Portfolio `gorm:"foreignKey:PortfolioID;reference:ID"`
-	PortfolioID int64      `gorm:"type:int;not null"`
+	ScrapedAt   int64       `gorm:"type:bigint;not null"`
+	Portfolio   *Portfolio  `gorm:"foreignkey:PortfolioID"`
+	PortfolioID PortfolioID `gorm:"type:varchar(50);not null"`
 
 	WeightUsed  int32         `gorm:"-"`
 	WeightLimit int32         `gorm:"-"`
@@ -34,46 +40,49 @@ func (p *ScrapeCtx) Apply(ctx *ScrapeCtx) {
 type Position struct {
 	ScrapeCtx
 
-	Symbol    string  `gorm:"primaryKey;type:varchar(20);not null"`
-	Side      string  `gorm:"primaryKey;type:varchar(7);not null"`
-	Amount    float64 `gorm:"type:float;not null"`
-	Cost      float64 `gorm:"type:float;not null"`
-	Isolated  bool    `gorm:"type:bool;not null"`
-	UnPnl     float64 `gorm:"type:float;not null"`
-	Leverage  int32   `gorm:"type:int;not null"`
-	UpdatedAt int64   `gorm:"type:int;not null"`
+	ID       uint      `gorm:"primaryKey"`
+	Symbol   string    `gorm:"type:varchar(20);not null"`
+	Side     string    `gorm:"type:varchar(7);not null"`
+	Amount   float64   `gorm:"type:float;not null"`
+	Cost     float64   `gorm:"type:float;not null"`
+	Isolated bool      `gorm:"type:bool;not null"`
+	UnPnl    float64   `gorm:"type:float;not null"`
+	Leverage int32     `gorm:"type:int;not null"`
+	Date     time.Time `gorm:"type:date;not null"`
 }
 
 type Order struct {
 	ScrapeCtx
 
-	ID           int64   `gorm:"primaryKey;type:varchar(20);not null"`
-	Symbol       string  `gorm:"type:varchar(20);not null"`
-	Side         string  `gorm:"type:varchar(7);not null"`
-	PositionSide string  `gorm:"type:varchar(7);not null"`
-	TimeInForce  string  `gorm:"type:varchar(7);not null"`
-	Type         string  `gorm:"type:varchar(7);not null"`
-	Price        float64 `gorm:"type:float;not null"`
-	Amount       float64 `gorm:"type:float;not null"`
-	ReduceOnly   bool    `gorm:"type:bool;not null"`
-	Timestamp    int64   `gorm:"type:int;not null"`
+	ID           int64     `gorm:"primaryKey; autoIncrement:false; type:bigint; not null"`
+	Symbol       string    `gorm:"type:varchar(20);not null"`
+	Side         string    `gorm:"type:varchar(7);not null"`
+	PositionSide string    `gorm:"type:varchar(7);not null"`
+	TimeInForce  string    `gorm:"type:varchar(7);not null"`
+	Type         string    `gorm:"type:varchar(7);not null"`
+	Price        float64   `gorm:"type:float;not null"`
+	Amount       float64   `gorm:"type:float;not null"`
+	ReduceOnly   bool      `gorm:"type:bool;not null"`
+	Date         time.Time `gorm:"type:date;not null"`
 }
 
 type Income struct {
 	ScrapeCtx
 
-	ID        int64   `gorm:"primaryKey; type:bigint"`
-	Symbol    string  `gorm:"type:varchar(20);not null"`
-	Asset     string  `gorm:"type:varchar(20);not null"`
-	Type      string  `gorm:"type:varchar(20);not null"`
-	Info      string  `gorm:"type:varchar(20);not null"`
-	Income    float64 `gorm:"type:float;not null"`
-	Timestamp int64   `gorm:"type:bigint;not null"`
-	TradeID   int64   `gorm:"type:bigint;not null"`
+	ID      int64     `gorm:"primaryKey; autoIncrement:false; type:bigint; not null"`
+	Symbol  string    `gorm:"type:varchar(20); not null"`
+	Asset   string    `gorm:"type:varchar(20); not null"`
+	Type    string    `gorm:"type:varchar(20); not null"`
+	Info    string    `gorm:"type:varchar(20); not null"`
+	Income  float64   `gorm:"type:float; not null"`
+	TradeID int64     `gorm:"type:bigint; not null"`
+	Date    time.Time `gorm:"type:date; not null"`
 }
 
-type IncomeSummary struct {
-	Symbol    string  `gorm:"primaryKey;type:varchar(20);not null"`
-	Income    float64 `gorm:"type:float;not null"`
-	Timestamp int64   `gorm:"type:bigint;not null"`
+type DailyBalance struct {
+	ScrapeCtx
+
+	ID      uint      `gorm:"primaryKey"`
+	Balance float64   `gorm:"type:float; not null"`
+	Date    time.Time `gorm:"type:date; not null"`
 }

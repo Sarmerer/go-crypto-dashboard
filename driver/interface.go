@@ -1,4 +1,4 @@
-package database
+package driver
 
 import "github.com/sarmerer/go-crypto-dashboard/model"
 
@@ -15,11 +15,13 @@ type Reader interface {
 }
 
 type Writer interface {
-	UpdatePortfolios(portfolios []*model.Portfolio) error
+	SyncPortfolio(portfolio *model.Portfolio) error
 	UpdatePortfolio(portfolio *model.Portfolio) error
+
 	CreatePosition(position *model.Position) error
 	CreateOrder(order *model.Order) error
 	CreateIncome(income *model.Income) error
+	CreateDailyBalance(balance *model.DailyBalance) error
 
 	RemoveAllOrders(portfolio *model.Portfolio) error
 }

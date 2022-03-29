@@ -1,7 +1,6 @@
 package hosting
 
-type Hosting interface {
+type Provider interface {
 	Start() error
 	Stop() error
-	
 }

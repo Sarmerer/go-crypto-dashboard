@@ -1,8 +1,6 @@
 package digitalocean
 
-import (
-	"github.com/sarmerer/go-crypto-dashboard/hosting"
-)
+import "github.com/sarmerer/go-crypto-dashboard/hosting"
 
 type DigitalOceanConfig struct {
 	Token string
@@ -12,7 +10,7 @@ type localServer struct {
 	config *DigitalOceanConfig
 }
 
-func NewServer(config *DigitalOceanConfig) (hosting.Hosting, error) {
+func NewServer(config *DigitalOceanConfig) (hosting.Provider, error) {
 	return &localServer{config}, nil
 }
 

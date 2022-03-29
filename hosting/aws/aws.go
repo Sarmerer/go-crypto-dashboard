@@ -12,7 +12,7 @@ type awsServer struct {
 	config *AWSConfig
 }
 
-func NewServer(config *AWSConfig) (hosting.Hosting, error) {
+func NewServer(config *AWSConfig) (hosting.Provider, error) {
 	return &awsServer{config}, nil
 }
 

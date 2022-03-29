@@ -7,28 +7,29 @@ import (
 
 	"github.com/sarmerer/go-crypto-dashboard/config"
 	"github.com/sarmerer/go-crypto-dashboard/database"
-	"github.com/sarmerer/go-crypto-dashboard/database/sqlite3"
+	"github.com/sarmerer/go-crypto-dashboard/driver"
 	"github.com/sarmerer/go-crypto-dashboard/model"
 	"github.com/sarmerer/go-crypto-dashboard/scraper/exchange"
 )
 
 type Scraper interface {
-	UpdateRepo(portfolio *model.Portfolio) error
 	UpdateExchange(portfolio *model.Portfolio) error
 
 	Scrape() error
+	ContinuousScrape()
 	ScrapePortfolio(portfolio *model.Portfolio) error
 	ScrapePositions() error
 	ScrapeOrders() error
 	ScrapeIncome() error
-	ScrapeIncomeHistory() error
+	ScrapeDailyBalance() error
 
 	IsWeightOverused() bool
-	Sleep()
+	WaitWeightCooldown()
+	Sleep(d time.Duration)
 }
 
 type scraper struct {
-	repo     database.Repository
+	repo     driver.Repository
 	exchange exchange.Exchange
 	ctx      *model.ScrapeCtx
 }
@@ -36,26 +37,11 @@ type scraper struct {
 func NewScraper() (Scraper, error) {
 	return &scraper{
 		ctx: &model.ScrapeCtx{
-			ScrapedAt:   time.Now().Unix(),
-			WeightLimit: 300,
+			ScrapedAt:   time.Now().UnixMilli(),
+			WeightLimit: 1000,
 			Cooldown:    60,
 		},
 	}, nil
-}
-
-func (s *scraper) UpdateRepo(portfolio *model.Portfolio) error {
-	repo, err := sqlite3.NewRepository(portfolio)
-	if err != nil {
-		return err
-	}
-
-	s.repo = repo
-
-	if err := s.repo.UpdatePortfolios(config.Portfolios); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *scraper) UpdateExchange(portfolio *model.Portfolio) error {
@@ -68,9 +54,17 @@ func (s *scraper) UpdateExchange(portfolio *model.Portfolio) error {
 	return nil
 }
 
-func (s *scraper) Scrape() error {
-	for _, portfolio := range config.Portfolios {
-		log.Printf("scraping portfolio %s", portfolio.Alias)
+func (s *scraper) Scrape() (err error) {
+	if s.repo, err = database.NewRepository(); err != nil {
+		return err
+	}
+
+	portfolios, err := config.GetPortfolios()
+	if err != nil {
+		return err
+	}
+
+	for _, portfolio := range portfolios {
 		if err := s.ScrapePortfolio(portfolio); err != nil {
 			log.Print(fmt.Errorf("portfolio %s: %v", portfolio.Alias, err))
 		}
@@ -79,12 +73,29 @@ func (s *scraper) Scrape() error {
 	return nil
 }
 
-func (s *scraper) ScrapePortfolio(portfolio *model.Portfolio) error {
-	s.ctx.Portfolio = portfolio
+func (s *scraper) ContinuousScrape() {
+	log.Println("continuous scraping started")
 
-	if err := s.UpdateRepo(portfolio); err != nil {
+	for {
+		if err := s.Scrape(); err != nil {
+			log.Println("failed to scrape:", err)
+		}
+
+		d := time.Minute * 5
+		log.Printf("sleeping for %v", d)
+		s.divider()
+		s.Sleep(d)
+	}
+}
+
+func (s *scraper) ScrapePortfolio(portfolio *model.Portfolio) error {
+	err := s.repo.SyncPortfolio(portfolio)
+	if err != nil {
 		return err
 	}
+
+	s.ctx.Portfolio = portfolio
+	log.Printf("scraping portfolio: \"%s\"", s.ctx.Portfolio.ID)
 
 	if err := s.UpdateExchange(portfolio); err != nil {
 		return err
@@ -95,14 +106,10 @@ func (s *scraper) ScrapePortfolio(portfolio *model.Portfolio) error {
 	}
 
 	tasks := []func() error{
+		s.ScrapeDailyBalance,
 		s.ScrapePositions,
 		s.ScrapeOrders,
-	}
-
-	if portfolio.HistoryScraped {
-		tasks = append(tasks, s.ScrapeIncome)
-	} else {
-		tasks = append(tasks, s.ScrapeIncomeHistory)
+		s.ScrapeIncome,
 	}
 
 	for _, task := range tasks {
@@ -111,15 +118,17 @@ func (s *scraper) ScrapePortfolio(portfolio *model.Portfolio) error {
 		}
 
 		if s.IsWeightOverused() {
-			log.Printf("weight limit exceeded, sleeping for %d seconds", s.ctx.Cooldown)
-			s.Sleep()
+			s.WaitWeightCooldown()
 		}
 	}
 
+	s.divider()
 	return nil
 }
 
 func (s *scraper) ScrapePositions() error {
+	log.Println("scraping positions")
+
 	positions, err := s.exchange.GetPositions()
 	if err != nil {
 		return err
@@ -137,6 +146,8 @@ func (s *scraper) ScrapePositions() error {
 }
 
 func (s *scraper) ScrapeOrders() error {
+	log.Println("scraping orders")
+
 	orders, err := s.exchange.GetOrders()
 	if err != nil {
 		return err
@@ -153,6 +164,12 @@ func (s *scraper) ScrapeOrders() error {
 }
 
 func (s *scraper) ScrapeIncome() error {
+	if !s.ctx.Portfolio.HistoryScraped {
+		return s.scrapeIncomeHistory()
+	}
+
+	log.Println("scraping recent income")
+
 	incomes, err := s.exchange.GetIncome()
 	if err != nil {
 		return err
@@ -168,16 +185,16 @@ func (s *scraper) ScrapeIncome() error {
 	return nil
 }
 
-func (s *scraper) ScrapeIncomeHistory() error {
-	oldestIncomeTime := s.ctx.ScrapedAt
+func (s *scraper) scrapeIncomeHistory() error {
+	log.Println("scraping historical income")
 
+	oldestIncomeTime := time.Now().UnixMilli()
 	for {
 		if s.IsWeightOverused() {
-			log.Printf("weight limit exceeded, sleeping for %d seconds", s.ctx.Cooldown)
-			s.Sleep()
+			s.WaitWeightCooldown()
+			log.Println("scraping next chunk...")
 		}
 
-		log.Printf("scraping income history from %d", oldestIncomeTime)
 		incomes, err := s.exchange.GetIncomeBetween(0, oldestIncomeTime)
 		if err != nil {
 			return err
@@ -194,7 +211,12 @@ func (s *scraper) ScrapeIncomeHistory() error {
 			}
 		}
 
-		oldestIncomeTime = incomes[0].Timestamp - 1
+		newOldest := incomes[0].Date.UnixMilli()
+		if newOldest >= oldestIncomeTime {
+			break
+		}
+
+		oldestIncomeTime = newOldest - 1
 	}
 
 	s.ctx.Portfolio.HistoryScraped = true
@@ -205,11 +227,42 @@ func (s *scraper) ScrapeIncomeHistory() error {
 	return nil
 }
 
+func (s *scraper) ScrapeDailyBalance() error {
+	log.Println("scraping daily balance")
+
+	balance, err := s.exchange.GetBalance()
+	if err != nil {
+		return err
+	}
+
+	date := time.Now().UTC().Truncate(time.Hour * 24)
+	dailyBalance := &model.DailyBalance{
+		Balance: balance,
+		Date:    date,
+	}
+
+	dailyBalance.ScrapeCtx.Apply(s.ctx)
+	if err := s.repo.CreateDailyBalance(dailyBalance); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *scraper) IsWeightOverused() bool {
 	return s.ctx.WeightUsed > s.ctx.WeightLimit
 }
 
-func (s *scraper) Sleep() {
-	time.Sleep(time.Second * s.ctx.Cooldown)
+func (s *scraper) WaitWeightCooldown() {
+	log.Printf("used weight: %d/%d, sleeping for %d seconds", s.ctx.WeightUsed, s.ctx.WeightLimit, s.ctx.Cooldown)
+	s.Sleep(time.Second * s.ctx.Cooldown)
 	s.ctx.WeightUsed = 0
+}
+
+func (s *scraper) Sleep(d time.Duration) {
+	time.Sleep(d)
+}
+
+func (s *scraper) divider() {
+	log.Println("------------------")
 }

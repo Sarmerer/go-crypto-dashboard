@@ -3,18 +3,19 @@ package config
 import (
 	"fmt"
 
+	"github.com/sarmerer/go-crypto-dashboard/driver/sqlite3"
 	"github.com/sarmerer/go-crypto-dashboard/model"
 	"github.com/spf13/viper"
 )
 
-var (
-	Portfolios []*model.Portfolio
-
-	DefaultDBPath string
+const (
+	DefaultAPIPort int = 3000
 )
 
-const (
-	DefaultDBName string = "dashboard.db"
+var (
+	DBDriver      string
+	SQLite3Config sqlite3.Config
+	APIPort       int = DefaultAPIPort
 )
 
 func Load() error {
@@ -26,11 +27,27 @@ func Load() error {
 		return fmt.Errorf("failed to read config: %v", err)
 	}
 
-	DefaultDBPath = viper.GetString("db_path")
+	fields := map[string]interface{}{
+		"driver":        &DBDriver,
+		"driver_config": &SQLite3Config,
+		"api_port":      &APIPort,
+	}
 
-	if err := viper.UnmarshalKey("portfolios", &Portfolios); err != nil {
-		return fmt.Errorf("failed to unmarshal portfolios: %v", err)
+	for field, ptr := range fields {
+		if err := viper.UnmarshalKey(field, ptr); err != nil {
+			return fmt.Errorf("failed to unmarshal key %s: %v", field, err)
+		}
 	}
 
 	return nil
+}
+
+func GetPortfolios() ([]*model.Portfolio, error) {
+	portfolios := []*model.Portfolio{}
+
+	if err := viper.UnmarshalKey("portfolios", &portfolios); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal portfolios: %v", err)
+	}
+
+	return portfolios, nil
 }

@@ -12,7 +12,7 @@ import (
 
 const (
 	SCRAPE = iota
-	INFO
+	SERVE
 )
 
 func main() {
@@ -25,8 +25,8 @@ func main() {
 	args := os.Args[1:]
 	command := SCRAPE
 	if len(args) > 0 {
-		if args[0] == "info" {
-			command = INFO
+		if args[0] == "serve" {
+			command = SERVE
 		}
 	}
 
@@ -37,11 +37,9 @@ func main() {
 			log.Fatal(fmt.Errorf("failed to initialize scraper: %v", err))
 		}
 
-		if err := scraper.Scrape(); err != nil {
-			log.Fatal(fmt.Errorf("failed to scrape: %v", err))
-		}
-	case INFO:
-		api.PortfolioInfo(config.Portfolios[0])
+		scraper.ContinuousScrape()
+	case SERVE:
+		api.Serve()
 		return
 	default:
 		log.Fatal(fmt.Errorf("unknown command: %v", command))
