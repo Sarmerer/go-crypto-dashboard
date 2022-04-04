@@ -3,19 +3,18 @@ package config
 import (
 	"fmt"
 
-	"github.com/sarmerer/go-crypto-dashboard/driver/sqlite3"
 	"github.com/sarmerer/go-crypto-dashboard/model"
 	"github.com/spf13/viper"
 )
 
 const (
-	DefaultAPIPort int = 3000
+	DefaultAPIPort int    = 3000
+	DefaultDBPath  string = "./database.db"
 )
 
 var (
-	DBDriver      string
-	SQLite3Config sqlite3.Config
-	APIPort       int = DefaultAPIPort
+	APIPort int    = DefaultAPIPort
+	DBPath  string = DefaultDBPath
 )
 
 func Load() error {
@@ -28,9 +27,7 @@ func Load() error {
 	}
 
 	fields := map[string]interface{}{
-		"driver":        &DBDriver,
-		"driver_config": &SQLite3Config,
-		"api_port":      &APIPort,
+		"api_port": &APIPort,
 	}
 
 	for field, ptr := range fields {

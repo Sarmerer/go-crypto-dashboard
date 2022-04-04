@@ -7,6 +7,7 @@ import (
 )
 
 type Exchange interface {
+	GetSymbolPrices() ([]*model.SymbolPrice, error)
 	GetBalance() (float64, error)
 	GetPositions() ([]*model.Position, error)
 	GetOrders() ([]*model.Order, error)

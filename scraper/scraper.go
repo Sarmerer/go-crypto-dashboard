@@ -6,22 +6,22 @@ import (
 	"time"
 
 	"github.com/sarmerer/go-crypto-dashboard/config"
-	"github.com/sarmerer/go-crypto-dashboard/database"
-	"github.com/sarmerer/go-crypto-dashboard/driver"
 	"github.com/sarmerer/go-crypto-dashboard/model"
+	"github.com/sarmerer/go-crypto-dashboard/repository"
 	"github.com/sarmerer/go-crypto-dashboard/scraper/exchange"
 )
 
 type Scraper interface {
-	UpdateExchange(portfolio *model.Portfolio) error
+	GetExchange(portfolio *model.Portfolio) (exchange.Exchange, error)
 
 	Scrape() error
-	ContinuousScrape()
+	ContinuousScrape() error
+	ScrapePrices(portfolio *model.Portfolio) error
 	ScrapePortfolio(portfolio *model.Portfolio) error
 	ScrapePositions() error
 	ScrapeOrders() error
 	ScrapeIncome() error
-	ScrapeDailyBalance() error
+	ScrapeBalance() error
 
 	IsWeightOverused() bool
 	WaitWeightCooldown()
@@ -29,38 +29,38 @@ type Scraper interface {
 }
 
 type scraper struct {
-	repo     driver.Repository
+	repo     repository.Repository
 	exchange exchange.Exchange
 	ctx      *model.ScrapeCtx
 }
 
-func NewScraper() (Scraper, error) {
+func NewScraper(repo repository.Repository) (Scraper, error) {
 	return &scraper{
 		ctx: &model.ScrapeCtx{
 			ScrapedAt:   time.Now().UnixMilli(),
 			WeightLimit: 1000,
 			Cooldown:    60,
 		},
+		repo: repo,
 	}, nil
 }
 
-func (s *scraper) UpdateExchange(portfolio *model.Portfolio) error {
-	exchange, err := exchange.NewExchange(s.ctx.Portfolio, s.ctx)
+func (s *scraper) GetExchange(portfolio *model.Portfolio) (exchange.Exchange, error) {
+	exchange, err := exchange.NewExchange(portfolio, s.ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	s.exchange = exchange
-	return nil
+	return exchange, nil
 }
 
 func (s *scraper) Scrape() (err error) {
-	if s.repo, err = database.NewRepository(); err != nil {
+	portfolios, err := config.GetPortfolios()
+	if err != nil {
 		return err
 	}
 
-	portfolios, err := config.GetPortfolios()
-	if err != nil {
+	if err := s.ScrapePrices(portfolios[0]); err != nil {
 		return err
 	}
 
@@ -73,18 +73,22 @@ func (s *scraper) Scrape() (err error) {
 	return nil
 }
 
-func (s *scraper) ContinuousScrape() {
+func (s *scraper) ContinuousScrape() error {
 	log.Println("continuous scraping started")
 
-	for {
-		if err := s.Scrape(); err != nil {
-			log.Println("failed to scrape:", err)
-		}
+	if err := s.Scrape(); err != nil {
+		return err
+	}
 
+	for {
 		d := time.Minute * 5
 		log.Printf("sleeping for %v", d)
 		s.divider()
 		s.Sleep(d)
+
+		if err := s.Scrape(); err != nil {
+			log.Println("failed to scrape:", err)
+		}
 	}
 }
 
@@ -97,7 +101,13 @@ func (s *scraper) ScrapePortfolio(portfolio *model.Portfolio) error {
 	s.ctx.Portfolio = portfolio
 	log.Printf("scraping portfolio: \"%s\"", s.ctx.Portfolio.ID)
 
-	if err := s.UpdateExchange(portfolio); err != nil {
+	exchange, err := s.GetExchange(portfolio)
+	if err != nil {
+		return err
+	}
+	s.exchange = exchange
+
+	if err := s.repo.RemoveAllPositions(portfolio); err != nil {
 		return err
 	}
 
@@ -106,7 +116,7 @@ func (s *scraper) ScrapePortfolio(portfolio *model.Portfolio) error {
 	}
 
 	tasks := []func() error{
-		s.ScrapeDailyBalance,
+		s.ScrapeBalance,
 		s.ScrapePositions,
 		s.ScrapeOrders,
 		s.ScrapeIncome,
@@ -123,6 +133,30 @@ func (s *scraper) ScrapePortfolio(portfolio *model.Portfolio) error {
 	}
 
 	s.divider()
+	return nil
+}
+
+func (s *scraper) ScrapePrices(portfolio *model.Portfolio) error {
+	log.Printf("scraping prices from %s\n", portfolio.Exchange)
+	s.divider()
+
+	exchange, err := s.GetExchange(portfolio)
+	if err != nil {
+		return err
+	}
+
+	prices, err := exchange.GetSymbolPrices()
+	if err != nil {
+		return err
+	}
+
+	for _, price := range prices {
+		price.ScrapeCtx.Apply(s.ctx)
+		if err := s.repo.CreateSymbolPrice(price); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -227,22 +261,28 @@ func (s *scraper) scrapeIncomeHistory() error {
 	return nil
 }
 
-func (s *scraper) ScrapeDailyBalance() error {
-	log.Println("scraping daily balance")
+func (s *scraper) ScrapeBalance() error {
+	log.Println("scraping balance")
 
+	date := time.Now().UTC()
 	balance, err := s.exchange.GetBalance()
 	if err != nil {
 		return err
 	}
 
-	date := time.Now().UTC().Truncate(time.Hour * 24)
 	dailyBalance := &model.DailyBalance{
 		Balance: balance,
-		Date:    date,
+		Date:    date.Truncate(time.Hour * 24),
 	}
 
 	dailyBalance.ScrapeCtx.Apply(s.ctx)
 	if err := s.repo.CreateDailyBalance(dailyBalance); err != nil {
+		return err
+	}
+
+	currentBalance := &model.CurrentBalance{Balance: balance, Date: date}
+	currentBalance.ScrapeCtx.Apply(s.ctx)
+	if err := s.repo.UpdateCurrentBalance(currentBalance); err != nil {
 		return err
 	}
 

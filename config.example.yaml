@@ -4,7 +4,3 @@ portfolio:
     exchange: binance-futures
     api_key:
     api_secret:
-
-driver:
-  sqlite3:
-    dsn: ./database.db

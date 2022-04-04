@@ -57,6 +57,25 @@ func NewBinanceFutures(portfolio *model.Portfolio, ctx *model.ScrapeCtx) (Exchan
 	return exchange, nil
 }
 
+func (e *binanceFutures) GetSymbolPrices() ([]*model.SymbolPrice, error) {
+	prices, err := e.client.NewListPricesService().Do(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	var result []*model.SymbolPrice
+	for _, price := range prices {
+		r, err := e.parsePrice(price)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, r)
+	}
+
+	return result, nil
+}
+
 func (e *binanceFutures) GetBalance() (float64, error) {
 	account, err := e.client.NewGetAccountService().Do(context.Background())
 	if err != nil {
@@ -75,21 +94,14 @@ func (e *binanceFutures) GetPositions() ([]*model.Position, error) {
 	var positions []*model.Position
 	for _, rawPosition := range account.Positions {
 
-		positionCost, err := e.getPositionCost(rawPosition)
-		if err != nil {
-			return nil, err
-		}
-
-		if positionCost < 0.1 {
-			continue
-		}
-
 		position, err := e.parsePosition(rawPosition)
 		if err != nil {
 			return nil, err
 		}
 
-		positions = append(positions, position)
+		if position.IsOpen() {
+			positions = append(positions, position)
+		}
 	}
 	return positions, nil
 }
@@ -162,13 +174,18 @@ func (e *binanceFutures) GetIncomeBetween(startTime, endTime int64) ([]*model.In
 	return incomes, nil
 }
 
-func (e *binanceFutures) getPositionCost(position *futures.AccountPosition) (float64, error) {
-	cost, err := strconv.ParseFloat(position.PositionInitialMargin, 64)
+func (e *binanceFutures) parsePrice(sp *futures.SymbolPrice) (*model.SymbolPrice, error) {
+	price, err := strconv.ParseFloat(sp.Price, 64)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return cost, nil
+	symbolPrice := &model.SymbolPrice{
+		Symbol: sp.Symbol,
+		Price:  price,
+	}
+
+	return symbolPrice, nil
 }
 
 func (e *binanceFutures) parsePosition(ap *futures.AccountPosition) (*model.Position, error) {
@@ -177,7 +194,12 @@ func (e *binanceFutures) parsePosition(ap *futures.AccountPosition) (*model.Posi
 		return nil, err
 	}
 
-	price, err := strconv.ParseFloat(ap.PositionInitialMargin, 64)
+	cost, err := strconv.ParseFloat(ap.PositionInitialMargin, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	ePrice, err := strconv.ParseFloat(ap.EntryPrice, 64)
 	if err != nil {
 		return nil, err
 	}
@@ -193,14 +215,15 @@ func (e *binanceFutures) parsePosition(ap *futures.AccountPosition) (*model.Posi
 	}
 
 	return &model.Position{
-		Symbol:   ap.Symbol,
-		Amount:   amount,
-		Cost:     price,
-		Isolated: ap.Isolated,
-		UnPnl:    unpnl,
-		Side:     string(ap.PositionSide),
-		Leverage: int32(lev),
-		Date:     time.UnixMilli(ap.UpdateTime),
+		Symbol:     ap.Symbol,
+		Amount:     amount,
+		Cost:       cost,
+		EntryPrice: ePrice,
+		Isolated:   ap.Isolated,
+		UnPnl:      unpnl,
+		Side:       string(ap.PositionSide),
+		Leverage:   int32(lev),
+		Date:       time.UnixMilli(ap.UpdateTime),
 	}, nil
 }
 

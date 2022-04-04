@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/sarmerer/go-crypto-dashboard/driver"
 	"github.com/sarmerer/go-crypto-dashboard/model"
+	"github.com/sarmerer/go-crypto-dashboard/repository"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -19,7 +19,7 @@ type repo struct {
 	db *gorm.DB
 }
 
-func NewRepository(dialector gorm.Dialector) (driver.Repository, error) {
+func NewRepository(dialector gorm.Dialector) (repository.Repository, error) {
 	silentLogger := logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags),
 		logger.Config{
@@ -40,6 +40,8 @@ func NewRepository(dialector gorm.Dialector) (driver.Repository, error) {
 		&model.Order{},
 		&model.Income{},
 		&model.DailyBalance{},
+		&model.CurrentBalance{},
+		&model.SymbolPrice{},
 	)
 
 	return &repo{db}, nil

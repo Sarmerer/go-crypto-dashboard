@@ -9,9 +9,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sarmerer/go-crypto-dashboard/api/chartjs"
 	"github.com/sarmerer/go-crypto-dashboard/config"
+	"github.com/sarmerer/go-crypto-dashboard/repository"
 )
 
-func Serve() {
+func Serve(repo repository.Repository) {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
@@ -22,4 +23,6 @@ func Serve() {
 	port := fmt.Sprintf(":%d", config.APIPort)
 	log.Printf("listening on port %s", port)
 	http.ListenAndServe(port, r)
+
+	_ = repo
 }

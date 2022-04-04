@@ -7,6 +7,10 @@ import (
 	"gorm.io/gorm"
 )
 
+func (r *repo) CreateSymbolPrice(sp *model.SymbolPrice) error {
+	return r.createOrUpdate(sp, "symbol = ?", sp.Symbol)
+}
+
 func (r *repo) SyncPortfolio(portfolio *model.Portfolio) error {
 	record := &model.Portfolio{}
 	err := r.db.Where("id = ?", portfolio.ID).First(record).Error
@@ -26,7 +30,7 @@ func (r *repo) UpdatePortfolio(portfolio *model.Portfolio) error {
 }
 
 func (r *repo) CreatePosition(position *model.Position) error {
-	return r.createIfNotExists(position, "symbol = ? AND side = ? AND portfolio_id = ?", position.Symbol, position.Side, position.Portfolio.ID)
+	return r.createOrUpdate(position, "symbol = ? AND side = ? AND portfolio_id = ?", position.Symbol, position.Side, position.Portfolio.ID)
 }
 
 func (r *repo) CreateOrder(order *model.Order) error {
@@ -37,23 +41,33 @@ func (r *repo) CreateOrder(order *model.Order) error {
 	return nil
 }
 
+func (r *repo) RemoveAllPositions(portfolio *model.Portfolio) error {
+	return r.db.Where("portfolio_id = ?", portfolio.ID).Delete(model.Position{}).Error
+}
+
 func (r *repo) RemoveAllOrders(portfolio *model.Portfolio) error {
 	return r.db.Where("portfolio_id = ?", portfolio.ID).Delete(&model.Order{}).Error
 }
 
 func (r *repo) CreateIncome(income *model.Income) error {
-	return r.createIfNotExists(income, "id = ? AND portfolio_id = ?", income.ID, income.Portfolio.ID)
+	return r.createOrUpdate(income, "id = ? AND portfolio_id = ?", income.ID, income.Portfolio.ID)
 }
 
 func (r *repo) CreateDailyBalance(balance *model.DailyBalance) error {
-	return r.createIfNotExists(balance, "date = ? AND portfolio_id = ?", balance.Date, balance.Portfolio.ID)
+	return r.createOrUpdate(balance, "date = ? AND portfolio_id = ?", balance.Date, balance.Portfolio.ID)
 }
 
-func (r *repo) createIfNotExists(model interface{}, query string, args ...interface{}) error {
-	err := r.db.Model(model).Where(query, args...).First(model).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return r.db.Create(model).Error
+func (r *repo) UpdateCurrentBalance(balance *model.CurrentBalance) error {
+	return r.createOrUpdate(balance, "portfolio_id = ?", balance.Portfolio.ID)
+}
+
+func (r *repo) createOrUpdate(model interface{}, query string, args ...interface{}) error {
+	if err := r.db.Where(query, args...).First(model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return r.db.Create(model).Error
+		}
+		return err
 	}
 
-	return err
+	return r.db.Model(model).Updates(model).Error
 }
