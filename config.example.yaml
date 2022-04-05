@@ -4,3 +4,7 @@ portfolio:
     exchange: binance-futures
     api_key:
     api_secret:
+
+api_port: 8080
+exchange_weight_limit: 500
+exchange_cooldown_seconds: 60

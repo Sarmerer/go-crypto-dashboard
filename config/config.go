@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/sarmerer/go-crypto-dashboard/model"
 	"github.com/spf13/viper"
@@ -10,11 +11,17 @@ import (
 const (
 	DefaultAPIPort int    = 3000
 	DefaultDBPath  string = "./database.db"
+
+	DefaultExcWeightLimit    int32         = 500
+	DefaultExcWeightCooldown time.Duration = 60 * time.Second
 )
 
 var (
 	APIPort int    = DefaultAPIPort
 	DBPath  string = DefaultDBPath
+
+	ExchangeWeightLimit    int32         = DefaultExcWeightLimit
+	ExchangeWeightCooldown time.Duration = DefaultExcWeightCooldown
 )
 
 func Load() error {
@@ -26,8 +33,11 @@ func Load() error {
 		return fmt.Errorf("failed to read config: %v", err)
 	}
 
+	var cooldown int64
 	fields := map[string]interface{}{
-		"api_port": &APIPort,
+		"api_port":                  &APIPort,
+		"exchange_weight_limit":     &ExchangeWeightLimit,
+		"exchange_cooldown_seconds": &cooldown,
 	}
 
 	for field, ptr := range fields {
@@ -35,6 +45,8 @@ func Load() error {
 			return fmt.Errorf("failed to unmarshal key %s: %v", field, err)
 		}
 	}
+
+	ExchangeWeightCooldown = time.Duration(cooldown) * time.Second
 
 	return nil
 }

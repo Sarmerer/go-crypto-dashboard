@@ -38,8 +38,8 @@ func NewScraper(repo repository.Repository) (Scraper, error) {
 	return &scraper{
 		ctx: &model.ScrapeCtx{
 			ScrapedAt:   time.Now().UnixMilli(),
-			WeightLimit: 1000,
-			Cooldown:    60,
+			WeightLimit: config.ExchangeWeightLimit,
+			Cooldown:    config.ExchangeWeightCooldown,
 		},
 		repo: repo,
 	}, nil
