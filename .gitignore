@@ -1,6 +1,7 @@
 .vscode/
 config.yaml
 *.db
+bin/
 
 !metabase.db/
 !metabase.db/*

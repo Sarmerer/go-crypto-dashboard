@@ -294,8 +294,8 @@ func (s *scraper) IsWeightOverused() bool {
 }
 
 func (s *scraper) WaitWeightCooldown() {
-	log.Printf("used weight: %d/%d, sleeping for %d seconds", s.ctx.WeightUsed, s.ctx.WeightLimit, s.ctx.Cooldown)
-	s.Sleep(time.Second * s.ctx.Cooldown)
+	log.Printf("used weight: %d/%d, sleeping for %v seconds", s.ctx.WeightUsed, s.ctx.WeightLimit, s.ctx.Cooldown)
+	s.Sleep(s.ctx.Cooldown)
 	s.ctx.WeightUsed = 0
 }
 
