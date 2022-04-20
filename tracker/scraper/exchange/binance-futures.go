@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/adshao/go-binance/v2/futures"
-	"github.com/sarmerer/go-crypto-dashboard/model"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/model"
 )
 
 type binanceFutures struct {

@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/sarmerer/go-crypto-dashboard/model"
-	"github.com/sarmerer/go-crypto-dashboard/repository"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/model"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/repository"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

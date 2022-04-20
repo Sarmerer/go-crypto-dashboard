@@ -2,8 +2,9 @@ package sqlite3
 
 import (
 	"errors"
+	"reflect"
 
-	"github.com/sarmerer/go-crypto-dashboard/model"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/model"
 	"gorm.io/gorm"
 )
 
@@ -50,7 +51,7 @@ func (r *repo) RemoveAllOrders(portfolio *model.Portfolio) error {
 }
 
 func (r *repo) CreateIncome(income *model.Income) error {
-	return r.createOrUpdate(income, "id = ? AND portfolio_id = ?", income.ID, income.Portfolio.ID)
+	return r.createOrUpdate(income, "id = ? AND portfolio_id = ? AND type = ?", income.ID, income.Portfolio.ID, income.Type)
 }
 
 func (r *repo) CreateDailyBalance(balance *model.DailyBalance) error {
@@ -62,12 +63,14 @@ func (r *repo) UpdateCurrentBalance(balance *model.CurrentBalance) error {
 }
 
 func (r *repo) createOrUpdate(model interface{}, query string, args ...interface{}) error {
-	if err := r.db.Where(query, args...).First(model).Error; err != nil {
+	mt := reflect.TypeOf(model)
+	dummy := reflect.New(mt).Interface()
+	if err := r.db.Where(query, args...).First(dummy).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return r.db.Create(model).Error
 		}
 		return err
 	}
 
-	return r.db.Model(model).Updates(model).Error
+	return r.db.Model(dummy).Updates(model).Error
 }

@@ -3,10 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/sarmerer/go-crypto-dashboard/config"
-	"github.com/sarmerer/go-crypto-dashboard/tracker/api"
 	"github.com/sarmerer/go-crypto-dashboard/tracker/repository"
 	"github.com/sarmerer/go-crypto-dashboard/tracker/repository/sqlite3"
 	"github.com/sarmerer/go-crypto-dashboard/tracker/scraper"
@@ -25,30 +23,8 @@ func main() {
 		log.Fatal(fmt.Errorf("failed to load config: %v", err))
 	}
 
-	args := os.Args[1:]
-	command := GetCommand(args)
+	StartScraper()
 
-	switch command {
-	case SCRAPE:
-		StartScraper()
-	case SERVE:
-		StartAPI()
-	default:
-		log.Fatal(fmt.Errorf("unknown command: %s", args[0]))
-	}
-}
-
-func GetCommand(args []string) (command int) {
-	if len(args) == 0 {
-		return SCRAPE
-	}
-
-	switch args[0] {
-	case "serve":
-		return SERVE
-	default:
-		return -1
-	}
 }
 
 func GetRepo() (repo repository.Repository, err error) {
@@ -76,13 +52,4 @@ func StartScraper() {
 	if err != nil {
 		log.Fatal(fmt.Errorf("initial scrape failed: %v", err))
 	}
-}
-
-func StartAPI() {
-	repo, err := GetRepo()
-	if err != nil {
-		log.Fatal(fmt.Errorf("failed to initialize repository: %v", err))
-	}
-
-	api.Serve(repo)
 }

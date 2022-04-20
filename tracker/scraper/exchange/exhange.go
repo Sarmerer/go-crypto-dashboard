@@ -3,7 +3,7 @@ package exchange
 import (
 	"fmt"
 
-	"github.com/sarmerer/go-crypto-dashboard/model"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/model"
 )
 
 type Exchange interface {

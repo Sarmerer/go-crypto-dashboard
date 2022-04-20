@@ -7,9 +7,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/sarmerer/go-crypto-dashboard/api/chartjs"
 	"github.com/sarmerer/go-crypto-dashboard/config"
-	"github.com/sarmerer/go-crypto-dashboard/repository"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/api/chartjs"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/repository"
 )
 
 func Serve(repo repository.Repository) {

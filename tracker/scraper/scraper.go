@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/sarmerer/go-crypto-dashboard/config"
-	"github.com/sarmerer/go-crypto-dashboard/model"
-	"github.com/sarmerer/go-crypto-dashboard/repository"
-	"github.com/sarmerer/go-crypto-dashboard/scraper/exchange"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/model"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/repository"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/scraper/exchange"
 )
 
 type Scraper interface {
@@ -81,7 +81,7 @@ func (s *scraper) ContinuousScrape() error {
 	}
 
 	for {
-		d := time.Minute * 5
+		d := config.ScrapeInterval
 		log.Printf("sleeping for %v", d)
 		s.divider()
 		s.Sleep(d)
@@ -198,7 +198,7 @@ func (s *scraper) ScrapeOrders() error {
 }
 
 func (s *scraper) ScrapeIncome() error {
-	if !s.ctx.Portfolio.HistoryScraped {
+	if config.ScrapeHistory && !s.ctx.Portfolio.HistoryScraped {
 		return s.scrapeIncomeHistory()
 	}
 

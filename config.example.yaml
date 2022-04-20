@@ -6,5 +6,9 @@ portfolio:
     api_secret:
 
 api_port: 8080
+
+scrape_history: true
+scrape_interval_secs: 300
+
 exchange_weight_limit: 500
-exchange_cooldown_seconds: 60
+exchange_cooldown_secs: 60

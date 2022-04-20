@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"github.com/sarmerer/go-crypto-dashboard/model"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/model"
 )
 
 type Repository interface {

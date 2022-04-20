@@ -76,9 +76,9 @@ type Income struct {
 	ScrapeCtx
 
 	ID      int64     `gorm:"primaryKey; autoIncrement:false; type:bigint"`
+	Type    string    `gorm:"primaryKey; type:varchar(20)"`
 	Symbol  string    `gorm:"type:varchar(20)"`
 	Asset   string    `gorm:"type:varchar(20)"`
-	Type    string    `gorm:"type:varchar(20)"`
 	Info    string    `gorm:"type:varchar(20)"`
 	Income  float64   `gorm:"type:float"`
 	TradeID int64     `gorm:"type:bigint"`

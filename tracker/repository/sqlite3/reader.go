@@ -1,7 +1,7 @@
 package sqlite3
 
 import (
-	"github.com/sarmerer/go-crypto-dashboard/model"
+	"github.com/sarmerer/go-crypto-dashboard/tracker/model"
 )
 
 func (r *repo) GetPortfolios() ([]*model.Portfolio, error) {
