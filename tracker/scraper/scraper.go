@@ -60,6 +60,10 @@ func (s *scraper) Scrape() (err error) {
 		return err
 	}
 
+	if len(portfolios) == 0 {
+		return fmt.Errorf("no portfolios found")
+	}
+
 	if err := s.ScrapePrices(portfolios[0]); err != nil {
 		return err
 	}
